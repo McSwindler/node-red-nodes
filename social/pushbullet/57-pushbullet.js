@@ -29,7 +29,8 @@ module.exports = function(RED) {
 
     RED.nodes.registerType("pushbullet-config", PushbulletConfig, {
         credentials: {
-            apikey: {type: "password"}
+            apikey: {type: "password"},
+            encryptionpassword: {type: "password"}
         }
     });
 
@@ -39,6 +40,7 @@ module.exports = function(RED) {
         this.initialised = true;
         var self = this;
         var apikey = this.credentials.apikey;
+        var encryptionpassword = this.credentials.encryptionpassword;
 
         if (apikey) {
             try {
@@ -73,7 +75,20 @@ module.exports = function(RED) {
                         }
                     });
                 });
-                this.pusher = pusher;
+                // enable end-to-end encryption+
+                if(encryptionpassword) {
+                    this.pusher = when(this.me).then(function(me) {
+                        try {
+                            pusher.enableEncryption(encryptionpassword, me.iden);
+                        }
+                        catch(ex) {
+                            self.error('Unable to enable encryption.');
+                        }
+                        return pusher;
+                    });
+                } else {
+                    this.pusher = pusher;
+                }
             }
             catch(err) {
                 onError(err, this);
@@ -94,49 +109,51 @@ module.exports = function(RED) {
 
     PushbulletConfig.prototype.setupStream = function() {
         var self = this;
-        if (this.pusher) {
-            var stream = this.pusher.stream();
-            stream.setMaxListeners(100);
-            var closing = false;
-            var tout;
-            stream.on('message', function(res) {
-                if (res.type === 'tickle') {
-                    self.handleTickle(res);
-                }
-                else if (res.type === 'push') {
-                    self.pushMsg(res.push);
-                }
-            });
-            stream.on('connect', function() {
-                self.emitter.emit('stream_connected');
-            });
-            stream.on('close', function() {
-                self.emitter.emit('stream_disconnected');
-                if (!closing) {
+        when(this.pusher).then(function(pusher) {
+            if (pusher) {
+                var stream = pusher.stream();
+                stream.setMaxListeners(100);
+                var closing = false;
+                var tout;
+                stream.on('message', function(res) {
+                    if (res.type === 'tickle') {
+                        self.handleTickle(res);
+                    }
+                    else if (res.type === 'push') {
+                        self.pushMsg(res.push);
+                    }
+                });
+                stream.on('connect', function() {
+                    self.emitter.emit('stream_connected');
+                });
+                stream.on('close', function() {
+                    self.emitter.emit('stream_disconnected');
+                    if (!closing) {
+                        if (tout) { clearTimeout(tout); }
+                        tout = setTimeout(function() {
+                            stream.connect();
+                        }, 15000);
+                    }
+                });
+                stream.on('error', function(err) {
+                    self.emitter.emit('stream_error', err);
+                    if (!closing) {
+                        if (tout) { clearTimeout(tout); }
+                        tout = setTimeout(function() {
+                            stream.connect();
+                        }, 15000);
+                    }
+                });
+                stream.connect();
+                self.stream = stream;
+                self.on("close",function() {
                     if (tout) { clearTimeout(tout); }
-                    tout = setTimeout(function() {
-                        stream.connect();
-                    }, 15000);
-                }
-            });
-            stream.on('error', function(err) {
-                self.emitter.emit('stream_error', err);
-                if (!closing) {
-                    if (tout) { clearTimeout(tout); }
-                    tout = setTimeout(function() {
-                        stream.connect();
-                    }, 15000);
-                }
-            });
-            stream.connect();
-            this.stream = stream;
-            this.on("close",function() {
-                if (tout) { clearTimeout(tout); }
-                closing = true;
-                try { this.stream.close(); }
-                catch(err) { } // Ignore error if not connected
-            });
-        }
+                    closing = true;
+                    try { self.stream.close(); }
+                    catch(err) { } // Ignore error if not connected
+                });
+            }
+        });
     };
 
     PushbulletConfig.prototype.handleTickle = function(ticklemsg) {

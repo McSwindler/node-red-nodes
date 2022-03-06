@@ -10,6 +10,10 @@
         <label for="node-config-input-apikey"><i class="fa fa-lock"></i> API-key</label>
         <input type="password" id="node-config-input-apikey">
     </div>
+    <div class="form-row">
+        <label for="node-config-input-encryptionpassword"><i class="fa fa-lock"></i> End-to-End Encryption Password</label>
+        <input type="password" id="node-config-input-encryptionpassword">
+    </div>
 </script>
 
 <script type="text/javascript">
@@ -20,7 +24,8 @@
             name: {value: ""}
         },
         credentials: {
-            apikey: {type: "password"}
+            apikey: {type: "password"},
+            encryptionpassword: {type: "password"}
         },
         label: function() {
             return this.name || "Pushbullet config";
